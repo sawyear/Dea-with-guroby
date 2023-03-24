@@ -2,16 +2,47 @@ import pandas as pd
 import numpy as np
 import copy
 import gurobipy
-import pysnooper
 from scipy import optimize as op
 from scipy.linalg import eigh as largest_eigh
 from dea import Dea
 from gurobipy import quicksum
 class gurobi_Dea(object):
+    """用于求解sbm、ebm和network模型
+    Parameters:
+    -----------
+    input_variable:
+        投入[x1,x2,x3,...]
+    desirable_output:
+        期望产出[y1,y2,y3,...]
+    undesirable_output:
+        非期望产出[w1,w2,w3,...]
+    dmu:
+        决策单元['dmu']
+    data:
+        主数据
+    method：
+    -----------
+    self.sbm:
+        求解基于SBM的DEA
+    self.add:
+        求解基于add的DEA
+    self.ebm:
+        求解基于EBM的DEA
+    self.n_sbm:
+        求解基于网络SBM的DEA
+    self.n_ebm:
+        求解基于网络EBM的DEA
+    Return:
+    ------
+    res : DataFrame
+        结果数据框[dmu	TE	slack...]
+    """
     def __init__(self, input_variable, desirable_output, undesirable_output, dmu, data):
         self.input_variable, self.desirable_output, self.undesirable_output, self.data = input_variable, desirable_output, undesirable_output, data
+        #生成四个字典：DMB，投入，期望产出和非期望产出
         self.DMUs, self.X, self.Y, self.Z = gurobipy.multidict({DMU: [data[input_variable].loc[DMU].tolist(), data[desirable_output].loc[DMU].tolist(), data[undesirable_output].loc[DMU].tolist()] for DMU in data.index})
         self.m, self.s1, self.s2 = len(input_variable), len(desirable_output), len(undesirable_output)
+        #结果数据框[dmu	TE	slack...]
         self.res = pd.DataFrame(columns = ['dmu','TE'], index = data.index)
         self.res['dmu'] = data[dmu]
         for j in input_variable + desirable_output + undesirable_output:
@@ -19,15 +50,15 @@ class gurobi_Dea(object):
 
     def s_corr(self, a, b):
         C = np.log(np.array(b)/np.array(a))
-        D = np.average(np.abs(C - np.average(C)))/(max(C)-min(C))
         if max(C) == min(C):
             return 1
         else:
+            D = np.average(np.abs(C - np.average(C)))/(max(C)-min(C))
             return 1 - 2 * D
 
     def affinity_matrix(self, direction = "input", rem = np.array([])):
         '''
-        calculate affinity_matrix
+        用来计算affinity_matrix
         '''
         re = self.sbm('v')
         if direction == "input" :
@@ -109,7 +140,7 @@ class gurobi_Dea(object):
             sbm.setParam('OutputFlag', 0)
             sbm.setParam('NonConvex', 2)
             sbm.optimize()
-            self.res.at[k, 'TE'] = sbm.objVal if sbm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = sbm.objVal #if sbm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
                 self.res.loc[k,self.input_variable[i]] = s_negative[i].X/(t.X or 1)
             for i in range(self.s1):
@@ -169,7 +200,8 @@ class gurobi_Dea(object):
             ## 求解
             op1 = op.linprog(c=c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method=method)
             res.loc[i, 'TE'] = op1.fun
-            res.loc[i, newcols] = op1.x[dmu_counts+1 :]/op1.x[dmu_counts]
+            #res.loc[i, newcols] = op1.x[dmu_counts+1 :]/op1.x[dmu_counts]
+            res.loc[i, newcols] = np.where(op1.x[dmu_counts] != 0, op1.x[dmu_counts+1 :]/op1.x[dmu_counts], 0)
         return res
 
     def add(self, scale = 'c'):
@@ -192,7 +224,7 @@ class gurobi_Dea(object):
             #add.setAttr('ModelSense', gurobipy.GRB.MAXIMIZE)
             add.setAttr(gurobipy.GRB.Attr.ModelSense, gurobipy.GRB.MAXIMIZE)
             add.optimize()
-            self.res.at[k, 'TE'] = add.objVal if add.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = add.objVal #if add.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
                 self.res.loc[k,self.input_variable[i]] = s_negative[i].X
             for i in range(self.s1):
@@ -223,7 +255,7 @@ class gurobi_Dea(object):
             ebm.setParam('OutputFlag', 0)
             ebm.setParam('NonConvex', 2)
             ebm.optimize()
-            self.res.at[k, 'TE'] = ebm.objVal if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = ebm.objVal #if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
                 self.res.loc[k,self.input_variable[i]] = s_negative[i].X
             for i in range(self.s1):
@@ -254,7 +286,7 @@ class gurobi_Dea(object):
             ebm.setParam('OutputFlag', 0)
             ebm.setParam('NonConvex', 2)
             ebm.optimize()
-            self.res.at[k, 'TE'] = ebm.objVal if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = ebm.objVal #if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
                 self.res.loc[k,self.input_variable[i]] = s_negative[i].X
             for i in range(self.s1):
@@ -319,7 +351,7 @@ class gurobi_Dea(object):
             n_sbm.setAttr(gurobipy.GRB.Attr.ModelSense, gurobipy.GRB.MINIMIZE)
             #优化
             n_sbm.optimize()
-            self.res.at[k, 'TE'] = n_sbm.objVal if n_sbm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = n_sbm.objVal #if n_sbm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A' #如果不是最优就取N/A
             for i in range(len(x1)):
                 self.res.loc[k,x1[i]] = s_x1[i].X/t.X
             for i in range(len(y1)):
@@ -381,9 +413,9 @@ class gurobi_Dea(object):
             n_ebm.addConstrs(quicksum(self.x2[i][j] * lambdas[2,i] for i in self.DMUs) == theta[1] * self.x2[k][j] - s_x2[j] for j in range(len(x2)))
             n_ebm.addConstrs(quicksum(self.y2[i][j] * lambdas[2,i] for i in self.DMUs) == eta[1] * self.y2[k][j] + s_y2[j] for j in range(len(y2)))
             n_ebm.addConstrs(quicksum(self.z2[i][j] * lambdas[2,i] for i in self.DMUs) == eta[1] * self.z2[k][j] - s_z2[j] for j in range(len(z2)))
-            n_ebm.addConstrs(quicksum(self.x3[i][j] * lambdas[3,i] for i in self.DMUs) == theta[2] * self.x3[k][j] - s_x3[j] for j in range(len(x3)))
-            n_ebm.addConstrs(quicksum(self.y3[i][j] * lambdas[3,i] for i in self.DMUs) == eta[2] * self.y3[k][j] + s_y3[j] for j in range(len(y3)))
-            n_ebm.addConstrs(quicksum(self.z3[i][j] * lambdas[3,i] for i in self.DMUs) == eta[2] * self.z3[k][j] - s_z3[j] for j in range(len(z3)))
+            n_ebm.addConstrs(quicksum(self.x3[i][j] * lambdas[3,i] for i in self.DMUs) == theta[2] * elf.x3[k][j] - s_x3[j] for j in range(len(x3)))
+            n_ebm.addConstrs(quicksum(self.y3[i][j] * lambdas[3,i] for i in self.DMUs) == eta[2] * sself.y3[k][j] + s_y3[j] for j in range(len(y3)))
+            n_ebm.addConstrs(quicksum(self.z3[i][j] * lambdas[3,i] for i in self.DMUs) == eta[2] * sself.z3[k][j] - s_z3[j] for j in range(len(z3)))
             #约束条件(link,t)
             n_ebm.addConstrs(quicksum(self.w12[i][j] * lambdas[1,i] - self.w12[i][j] * lambdas[2,i] for i in self.DMUs) == 0 for j in range(len(w12)))
             n_ebm.addConstrs(quicksum(self.w23[i][j] * lambdas[2,i] - self.w23[i][j] * lambdas[3,i] for i in self.DMUs) == 0 for j in range(len(w23)))
@@ -408,7 +440,7 @@ class gurobi_Dea(object):
             n_ebm.Params.LogToConsole=True # 显示求解过程
             #优化
             n_ebm.optimize()
-            self.res.at[k, 'TE'] = n_ebm.objVal if n_ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            self.res.at[k, 'TE'] = n_ebm.objVal #if n_ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(len(x1)):
                 self.res.loc[k,x1[i]] = s_x1[i].X
             for i in range(len(y1)):
@@ -428,3 +460,16 @@ class gurobi_Dea(object):
             for i in range(len(z3)):
                 self.res.loc[k,z3[i]] = s_z3[i].X
         return self.res
+
+    def d_n_sbm(self):
+        pass
+
+'''
+d2 = gurobi_Dea(input_variable= ['x1_1','x1_2','x2_1'], desirable_output=['y2_1','y2_2'], undesirable_output=['w2_1','w2_2','w2_3'], dmu = ['dmu'], data = data1)
+d2.sbm()
+d2.add()
+d2.ebm()
+d2.ebm_plus()
+d2.n_sbm(x1=['x1_1','x1_2'],x2=['x2_1'],y1=[],w12=['z12_1','z12_2'],y2=['y2_1','y2_2'],z2=['w2_1','w2_2','w2_3'])
+d2.n_ebm(x1=['x1_1','x1_2'],x2=['x2_1'],y1=[],w12=['z12_1','z12_2'],y2=['y2_1','y2_2'],z2=['w2_1','w2_2','w2_3'])
+'''
