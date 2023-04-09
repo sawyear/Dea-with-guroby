@@ -1,11 +1,10 @@
 import pandas as pd
 import numpy as np
-import copy
 import gurobipy
 from scipy import optimize as op
 from scipy.linalg import eigh as largest_eigh
-from dea import Dea
 from gurobipy import quicksum
+import functools
 class gurobi_Dea(object):
     """用于求解sbm、ebm和network模型
     Parameters:
@@ -25,9 +24,11 @@ class gurobi_Dea(object):
     self.sbm:
         求解基于SBM的DEA
     self.add:
-        求解基于add的DEA
+        求解基于ADD的DEA
     self.ebm:
         求解基于EBM的DEA
+    self.super_sbm:
+        求解基于超效率SBM的DEA
     self.n_sbm:
         求解基于网络SBM的DEA
     self.n_ebm:
@@ -43,10 +44,24 @@ class gurobi_Dea(object):
         self.DMUs, self.X, self.Y, self.Z = gurobipy.multidict({DMU: [data[input_variable].loc[DMU].tolist(), data[desirable_output].loc[DMU].tolist(), data[undesirable_output].loc[DMU].tolist()] for DMU in data.index})
         self.m, self.s1, self.s2 = len(input_variable), len(desirable_output), len(undesirable_output)
         #结果数据框[dmu	TE	slack...]
-        self.res = pd.DataFrame(columns = ['dmu','TE'], index = data.index)
-        self.res['dmu'] = data[dmu]
-        for j in input_variable + desirable_output + undesirable_output:
+        self.Data_res()
+
+    #生成空白的结果数据框
+    def Data_res(self):
+        self.res = pd.DataFrame(columns = ['dmu','TE'], index = self.data.index)
+        self.res['dmu'] = self.data['dmu']
+        for j in self.input_variable + self.desirable_output + self.undesirable_output:
             self.res[j] = np.nan
+
+    #定义初始化结果数据的装饰器
+    @staticmethod
+    def reset_state(method):
+        @functools.wraps(method)
+        def wrapper(self, *args, **kwargs):
+            result = method(self, *args, **kwargs)
+            self.Data_res()
+            return result
+        return wrapper
 
     def s_corr(self, a, b):
         C = np.log(np.array(b)/np.array(a))
@@ -257,45 +272,98 @@ class gurobi_Dea(object):
             ebm.optimize()
             self.res.at[k, 'TE'] = ebm.objVal #if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
-                self.res.loc[k,self.input_variable[i]] = s_negative[i].X
+                self.res.loc[k,self.input_variable[i]] = s_negative[i].X / (t.X or 1)
             for i in range(self.s1):
-                self.res.loc[k,self.desirable_output[i]] = s_k_positive[i].X
+                self.res.loc[k,self.desirable_output[i]] = s_k_positive[i].X / (t.X or 1)
             for i in range(self.s2):
-                self.res.loc[k,self.undesirable_output[i]] = s_k_negative[i].X
+                self.res.loc[k,self.undesirable_output[i]] = s_k_negative[i].X / (t.X or 1)
         return self.res
 
+    #初始化结果数据的装饰器
+    @reset_state.__func__
     def ebm_plus(self, scale = 'c'):
         epsilon_x, w_x = self.affinity_matrix('input')
         epsilon_y, w_y = self.affinity_matrix('desirable_output')
         epsilon_z, w_z = self.affinity_matrix('undesirable_output')
         for k in self.DMUs:
             ebm = gurobipy.Model()
-            theta, eta = ebm.addVar(), ebm.addVar()
+            theta, eta, theta_t, eta_t= ebm.addVar(), ebm.addVar(), ebm.addVar(), ebm.addVar()
             t = ebm.addVar()
             s_negative, s_k_positive, s_k_negative, lambdas = ebm.addVars(self.m), ebm.addVars(self.s1), ebm.addVars(self.s2), ebm.addVars(self.DMUs)
             ebm.update()
-            ebm.setObjective(theta * t - float(epsilon_x) * t * quicksum(float(w_x[i]) * s_negative[i] / self.X[k][i] for i in range(self.m)), sense = gurobipy.GRB.MINIMIZE)
-            ebm.addConstrs(quicksum(self.X[i][j] * lambdas[i] for i in self.DMUs) == theta * self.X[k][j] - s_negative[j] for j in range(self.m))
-            ebm.addConstrs(quicksum(self.Y[i][j] * lambdas[i] for i in self.DMUs) == eta * self.Y[k][j] + s_k_positive[j] for j in range(self.s1))
-            ebm.addConstrs(quicksum(self.Z[i][j] * lambdas[i] for i in self.DMUs) == eta * self.Z[k][j] - s_k_negative[j] for j in range(self.s2))
-            ebm.addConstr(eta * t + float(epsilon_y) * t * quicksum(float(w_y[i]) * s_k_positive[i] / self.Y[k][i] for i in range(self.s1)) + float(epsilon_z) * t * quicksum(float(w_z[i]) * s_k_negative[i] / self.Z[k][i] for i in range(self.s2)) == 1)
+            ebm.addConstr(theta_t == theta * t)
+            ebm.addConstr(eta_t == eta * t)
+            ebm.addConstrs(quicksum(self.X[i][j] * lambdas[i] for i in self.DMUs) == theta_t * self.X[k][j] - s_negative[j] for j in range(self.m))
+            ebm.addConstrs(quicksum(self.Y[i][j] * lambdas[i] for i in self.DMUs) == eta_t * self.Y[k][j] + s_k_positive[j] for j in range(self.s1))
+            ebm.addConstrs(quicksum(self.Z[i][j] * lambdas[i] for i in self.DMUs) == eta_t * self.Z[k][j] - s_k_negative[j] for j in range(self.s2))
+            ebm.addConstr(eta_t + float(epsilon_y) * quicksum(float(w_y[i]) * s_k_positive[i] / self.Y[k][i] for i in range(self.s1)) + float(epsilon_z) * quicksum(float(w_z[i]) * s_k_negative[i] / self.Z[k][i] for i in range(self.s2)) == 1)
             if scale == 'v':
                 ebm.addConstr(quicksum(lambdas[i] for i in self.DMUs) == 1)
             elif scale == 'c':
                 pass
+            ebm.setObjective(theta_t - float(epsilon_x) * quicksum(float(w_x[i]) * s_negative[i] / self.X[k][i] for i in range(self.m)), sense = gurobipy.GRB.MINIMIZE)
             ebm.setParam('OutputFlag', 0)
             ebm.setParam('NonConvex', 2)
             ebm.optimize()
             self.res.at[k, 'TE'] = ebm.objVal #if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
             for i in range(self.m):
-                self.res.loc[k,self.input_variable[i]] = s_negative[i].X
+                self.res.loc[k,self.input_variable[i]] = s_negative[i].X / (t.X or 1)
             for i in range(self.s1):
-                self.res.loc[k,self.desirable_output[i]] = s_k_positive[i].X
+                self.res.loc[k,self.desirable_output[i]] = s_k_positive[i].X / (t.X or 1)
             for i in range(self.s2):
-                self.res.loc[k,self.undesirable_output[i]] = s_k_negative[i].X
+                self.res.loc[k,self.undesirable_output[i]] = s_k_negative[i].X / (t.X or 1)
+            self.res.loc[k,'parameter_theta'] = theta_t.X
+            self.res.loc[k,'parameter_eta'] = eta_t.X
+        return self.res
+
+    #超效率SBM
+    def super_sbm(self):
+        for k in self.DMUs:
+            s_super = gurobipy.Model()
+            fi, fo, sigma = s_super.addVars(self.m), s_super.addVars(self.s1), s_super.addVars(self.s2)
+            lambdas, t = s_super.addVars(self.DMUs), s_super.addVar()
+            s_super.update()
+            s_super.setObjective(t + 1/self.m * quicksum(fi[j] for j in range(self.m)), sense=gurobipy.GRB.MINIMIZE)
+            s_super.addConstrs(quicksum(lambdas[i] * self.X[i][j] for i in self.DMUs if i != k)
+                             <= (1+fi[j]) * self.X[k][j] for j in range(self.m))
+            s_super.addConstrs(quicksum(lambdas[i] * self.Y[i][j] for i in self.DMUs if i != k)
+                             >= (1-fo[j]) * self.Y[k][j] for j in range(self.s1))
+            s_super.addConstrs(quicksum(lambdas[i] * self.Z[i][j] for i in self.DMUs if i != k)
+                             <= (1+sigma[j]) * self.Z[k][j] for j in range(self.s2))
+            s_super.addConstr(t - t/self.s1 * quicksum(fo[j] for j in range(self.s1)) == 1)
+            s_super.setParam('OutputFlag', 0)
+            s_super.setParam("NonConvex", 2)
+            s_super.optimize()
+            self.res.at[k, 'TE'] = s_super.objVal #if ebm.status == gurobipy.GRB.Status.OPTIMAL else 'N/A'
+            for i in range(self.m):
+                self.res.loc[k,self.input_variable[i]] = fi[i].X / (t.X or 1)
+            for i in range(self.s1):
+                self.res.loc[k,self.desirable_output[i]] = fo[i].X / (t.X or 1)
+            for i in range(self.s2):
+                self.res.loc[k,self.undesirable_output[i]] = sigma[i].X/(t.X or 1)
         return self.res
 
     def n_sbm(self, scale = 'c', x1=[], y1=[], z1=[], w12=[], x2=[], y2=[], z2=[], w23=[], x3=[], y3=[], z3=[], step=2):
+        '''用于求解基于sbm的网络dea，最多支持三阶段网络
+        Parameters:
+        -----------
+        x1:第一阶段的投入[x1,x2,x3,...]
+        y1:第一阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z1:第一阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        x2:第二阶段的投入(非上一阶段的产出)[x1,x2,x3,...]
+        y2:第二阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z2:第二阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        x3:第三阶段的投入(非上一阶段的产出)[x1,x2,x3,...]
+        y3:第三阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z3:第三阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        w12:第一阶段的产出用于二阶段的投入[w1,w2,w3,...]
+        w23:第二阶段的产出用于三阶段的投入[w1,w2,w3,...]
+        step:标记网络层数[1,2,3]
+        scale:可变前沿或不变前沿[v,c]
+        Return:
+        ------
+        res : D结果数据框[dmu TE	slack...]
+        '''
         self.despoit, self.x1, self.y1, self.z1, self.w12 = gurobipy.multidict({DMU: [self.data[x1].loc[DMU].tolist(), self.data[y1].loc[DMU].tolist(), self.data[z1].loc[DMU].tolist(), self.data[w12].loc[DMU].tolist()] for DMU in self.data.index})
         self.despoit, self.x2, self.y2, self.z2, self.w23 = gurobipy.multidict({DMU: [self.data[x2].loc[DMU].tolist(), self.data[y2].loc[DMU].tolist(), self.data[z2].loc[DMU].tolist(), self.data[w23].loc[DMU].tolist()] for DMU in self.data.index})
         self.despoit, self.x3, self.y3, self.z3 = gurobipy.multidict({DMU: [self.data[x3].loc[DMU].tolist(), self.data[y3].loc[DMU].tolist(), self.data[z3].loc[DMU].tolist()] for DMU in self.data.index})
@@ -312,10 +380,6 @@ class gurobi_Dea(object):
                     quicksum(s_x3[j]/(len(x3) * self.x3[k][j]) for j in range(len(x3)))
                 ), sense = gurobipy.GRB.MINIMIZE
             )
-            #n_sbm.setObjectiveN(t, weight = 1, index = 0)
-            #n_sbm.setObjectiveN(quicksum(s_x1[j]/(len(x1) * self.x1[k][j]) for j in range(len(x1))), weight = - 1/step, index = 1)
-            #n_sbm.setObjectiveN(quicksum(s_x2[j]/(len(x2) * self.x2[k][j]) for j in range(len(x2))), weight = - 1/step, index = 2)
-            #n_sbm.setObjectiveN(quicksum(s_x3[j]/(len(x3) * self.x3[k][j]) for j in range(len(x3))), weight = - 1/step, index = 3)
             #约束条件(input，output)
             n_sbm.addConstrs(quicksum(self.x1[i][j] * lambdas[1,i] for i in self.DMUs) == t * self.x1[k][j] - s_x1[j] for j in range(len(x1)))
             n_sbm.addConstrs(quicksum(self.y1[i][j] * lambdas[1,i] for i in self.DMUs) == t * self.y1[k][j] + s_y1[j] for j in range(len(y1)))
@@ -373,6 +437,26 @@ class gurobi_Dea(object):
         return self.res
 
     def n_ebm(self, scale = 'c', x1=[], y1=[], z1=[], w12=[], x2=[], y2=[], z2=[], w23=[], x3=[], y3=[], z3=[], step=2):
+        '''用于求解基于ebm的网络dea，最多支持三阶段网络
+        Parameters:
+        -----------
+        x1:第一阶段的投入[x1,x2,x3,...]
+        y1:第一阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z1:第一阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        x2:第二阶段的投入(非上一阶段的产出)[x1,x2,x3,...]
+        y2:第二阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z2:第二阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        x3:第三阶段的投入(非上一阶段的产出)[x1,x2,x3,...]
+        y3:第三阶段的预期产出(不投入下一阶段)[y1,y2,y3,...]
+        z3:第三阶段的非预期产出(不投入下一阶段)[z1,z2,z3,...]
+        w12:第一阶段的产出用于二阶段的投入[w1,w2,w3,...]
+        w23:第二阶段的产出用于三阶段的投入[w1,w2,w3,...]
+        step:标记网络层数[1,2,3]
+        scale:可变前沿或不变前沿[v,c]
+        Return:
+        ------
+        res : D结果数据框[dmu TE	slack...]
+        '''
         self.abandon, self.x1, self.y1, self.z1, self.w12 = gurobipy.multidict({DMU: [self.data[x1].loc[DMU].tolist(), self.data[y1].loc[DMU].tolist(), self.data[z1].loc[DMU].tolist(), self.data[w12].loc[DMU].tolist()] for DMU in self.data.index})
         self.abandon, self.x2, self.y2, self.z2, self.w23 = gurobipy.multidict({DMU: [self.data[x2].loc[DMU].tolist(), self.data[y2].loc[DMU].tolist(), self.data[z2].loc[DMU].tolist(), self.data[w23].loc[DMU].tolist()] for DMU in self.data.index})
         self.abandon, self.x3, self.y3, self.z3 = gurobipy.multidict({DMU: [self.data[x3].loc[DMU].tolist(), self.data[y3].loc[DMU].tolist(), self.data[z3].loc[DMU].tolist()] for DMU in self.data.index})
@@ -402,10 +486,6 @@ class gurobi_Dea(object):
                     quicksum(s_x3[j] * w_x3[j] * epsilon_x3/self.x3[k][j] for j in range(len(x3)))
                 ), sense = gurobipy.GRB.MINIMIZE
             )
-            #n_ebm.setObjectiveN(quicksum(theta[i] for i in range(3)), weight = 1, index = 0)
-            #n_ebm.setObjectiveN(quicksum(s_x1[j] * w_x1[j] * epsilon_x1/self.x1[k][j] for j in range(len(x1))), weight = - 1/step, index = 1)
-            #n_ebm.setObjectiveN(quicksum(s_x2[j] * w_x2[j] * epsilon_x2/self.x2[k][j] for j in range(len(x2))), weight = - 1/step, index = 2)
-            #n_ebm.setObjectiveN(quicksum(s_x3[j] * w_x3[j] * epsilon_x3/self.x3[k][j] for j in range(len(x3))), weight = - 1/step, index = 3)
             #约束条件(input，output)
             n_ebm.addConstrs(quicksum(self.x1[i][j] * lambdas[1,i] for i in self.DMUs) == theta[0] * self.x1[k][j] - s_x1[j] for j in range(len(x1)))
             n_ebm.addConstrs(quicksum(self.y1[i][j] * lambdas[1,i] for i in self.DMUs) == eta[0] * self.y1[k][j] + s_y1[j] for j in range(len(y1)))
@@ -463,13 +543,3 @@ class gurobi_Dea(object):
 
     def d_n_sbm(self):
         pass
-
-'''
-d2 = gurobi_Dea(input_variable= ['x1_1','x1_2','x2_1'], desirable_output=['y2_1','y2_2'], undesirable_output=['w2_1','w2_2','w2_3'], dmu = ['dmu'], data = data1)
-d2.sbm()
-d2.add()
-d2.ebm()
-d2.ebm_plus()
-d2.n_sbm(x1=['x1_1','x1_2'],x2=['x2_1'],y1=[],w12=['z12_1','z12_2'],y2=['y2_1','y2_2'],z2=['w2_1','w2_2','w2_3'])
-d2.n_ebm(x1=['x1_1','x1_2'],x2=['x2_1'],y1=[],w12=['z12_1','z12_2'],y2=['y2_1','y2_2'],z2=['w2_1','w2_2','w2_3'])
-'''
