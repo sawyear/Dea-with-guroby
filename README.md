@@ -18,6 +18,13 @@ All models support **undesirable outputs**.
 | Additive | `Additive` | Additive model | Charnes et al. (1985) |
 | DDF | `DDF` | Directional Distance Function | Chambers, Chung & Fare (1996, JET) |
 
+### Advanced Static
+
+| Model | Class | Description | Reference |
+|-------|-------|-------------|-----------|
+| Cross-efficiency | `CrossEfficiency` | Peer appraisal, maverick index | Doyle & Green (1994, JORS) |
+| Meta-frontier | `MetaFrontier` | Group frontier + TGR | Battese, Rao & O'Donnell (2004) |
+
 ### Structural
 
 | Model | Class | Description | Reference |
@@ -25,6 +32,7 @@ All models support **undesirable outputs**.
 | Network SBM | `NetworkSBM` | Multi-stage network (up to 3) | Tone & Tsutsui (2009, EJOR) |
 | Network EBM | `NetworkEBM` | Multi-stage network EBM | Tone & Tsutsui (2009) |
 | Dynamic SBM | `DynamicSBM` | Panel with carry-over | Tone & Tsutsui (2010, Omega) |
+| Dynamic Network SBM | `DynamicNetworkSBM` | Network + carry-over | Tone & Tsutsui (2014, Omega) |
 
 ### Productivity Indices
 
@@ -106,7 +114,7 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 │   ├── Gurobi_dea.py
 │   └── dynamic_dea.py
 ├── src/gurobi_dea/
-│   ├── __init__.py            # Public API (12 classes)
+│   ├── __init__.py            # Public API (15 classes)
 │   ├── base.py                # Abstract base class
 │   ├── utils.py               # Affinity matrix, S-correlation
 │   └── models/
@@ -115,8 +123,11 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 │       ├── ebm.py             # EBM
 │       ├── additive.py        # Additive
 │       ├── ddf.py             # Directional Distance Function
+│       ├── cross_efficiency.py # Cross-efficiency
+│       ├── meta_frontier.py   # Meta-frontier + TGR
 │       ├── network.py         # Network SBM/EBM
 │       ├── dynamic.py         # Dynamic SBM
+│       ├── dynamic_network.py # Dynamic Network SBM
 │       ├── malmquist.py       # Malmquist TFP Index
 │       └── malmquist_luenberger.py  # ML Index
 ├── examples/
@@ -128,7 +139,7 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 ## Roadmap
 
 - [x] Phase 1: CCR/BCC, DDF, Malmquist, Malmquist-Luenberger
-- [ ] Phase 2: Meta-frontier, Dynamic Network SBM, Cross-efficiency
+- [x] Phase 2: Meta-frontier, Dynamic Network SBM, Cross-efficiency
 - [ ] Phase 3: Bootstrap DEA, Window DEA, Cost/Revenue efficiency
 
 ## Dependencies
