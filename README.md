@@ -6,15 +6,32 @@ All models support **undesirable outputs**.
 
 ## Models
 
-| Model | Class | Description |
-|-------|-------|-------------|
-| SBM | `SBM` | Slacks-Based Measure (Tone, 2001) |
-| Super-SBM | `SuperSBM` | Super-efficiency SBM (Tone, 2002) |
-| EBM | `EBM` | Epsilon-Based Measure (Tone & Tsutsui, 2010) |
-| Additive | `Additive` | Additive model (Charnes et al., 1985) |
-| Network SBM | `NetworkSBM` | Network DEA up to 3 stages (Tone & Tsutsui, 2009) |
-| Network EBM | `NetworkEBM` | Network EBM up to 3 stages |
-| Dynamic SBM | `DynamicSBM` | Dynamic DEA with carry-over (Tone & Tsutsui, 2010) |
+### Static (Cross-Sectional)
+
+| Model | Class | Description | Reference |
+|-------|-------|-------------|-----------|
+| CCR | `CCR` | CRS radial model | Charnes, Cooper & Rhodes (1978, EJOR) |
+| BCC | `BCC` | VRS radial model | Banker, Charnes & Cooper (1984, MS) |
+| SBM | `SBM` | Slacks-Based Measure | Tone (2001, EJOR) |
+| Super-SBM | `SuperSBM` | Super-efficiency SBM | Tone (2002, EJOR) |
+| EBM | `EBM` | Epsilon-Based Measure | Tone & Tsutsui (2010, EJOR) |
+| Additive | `Additive` | Additive model | Charnes et al. (1985) |
+| DDF | `DDF` | Directional Distance Function | Chambers, Chung & Fare (1996, JET) |
+
+### Structural
+
+| Model | Class | Description | Reference |
+|-------|-------|-------------|-----------|
+| Network SBM | `NetworkSBM` | Multi-stage network (up to 3) | Tone & Tsutsui (2009, EJOR) |
+| Network EBM | `NetworkEBM` | Multi-stage network EBM | Tone & Tsutsui (2009) |
+| Dynamic SBM | `DynamicSBM` | Panel with carry-over | Tone & Tsutsui (2010, Omega) |
+
+### Productivity Indices
+
+| Model | Class | Description | Reference |
+|-------|-------|-------------|-----------|
+| Malmquist | `Malmquist` | TFP = EC × TC | Fare et al. (1994, AER) |
+| Malmquist-Luenberger | `MalmquistLuenberger` | Environmental TFP with DDF | Chung, Fare & Grosskopf (1997, JEM) |
 
 ## Installation
 
@@ -28,8 +45,9 @@ Requires a valid [Gurobi license](https://www.gurobi.com/downloads/).
 
 ```python
 import pandas as pd
-from gurobi_dea import SBM
+from gurobi_dea import SBM, CCR, Malmquist
 
+# --- Cross-sectional efficiency ---
 df = pd.DataFrame({
     "dmu": ["A", "B", "C", "D"],
     "x1":  [10, 20, 30, 40],
@@ -37,19 +55,33 @@ df = pd.DataFrame({
     "b1":  [3, 2, 4, 5],
 })
 
-model = SBM(
-    inputs=["x1"],
-    desirable_outputs=["y1"],
-    undesirable_outputs=["b1"],
-    data=df,
-)
-results = model.solve(scale="c")  # CRS
-print(results[["dmu", "TE"]])
+# Radial (CCR)
+ccr = CCR(inputs=["x1"], desirable_outputs=["y1"],
+          undesirable_outputs=["b1"], data=df)
+print(ccr.solve(orientation="input"))
+
+# Non-radial (SBM)
+sbm = SBM(inputs=["x1"], desirable_outputs=["y1"],
+          undesirable_outputs=["b1"], data=df)
+print(sbm.solve(scale="c"))
+
+# --- Productivity index (panel data) ---
+panel = pd.DataFrame({
+    "dmu":  ["A","A","B","B","C","C"],
+    "year": [2020,2021,2020,2021,2020,2021],
+    "x1":   [10, 9, 20, 18, 30, 28],
+    "y1":   [5, 6, 10, 12, 15, 16],
+    "b1":   [3, 2, 2, 1.5, 4, 3],
+})
+
+mi = Malmquist(inputs=["x1"], desirable_outputs=["y1"],
+               undesirable_outputs=["b1"], data=panel)
+print(mi.compute(orientation="input"))
 ```
 
 ## API
 
-Every model follows the same pattern:
+Every static model follows the same pattern:
 
 ```python
 model = ModelClass(
@@ -61,56 +93,43 @@ model = ModelClass(
 results = model.solve(scale="c")  # "c" = CRS, "v" = VRS
 ```
 
-`results` is a DataFrame with columns: `dmu`, `TE` (efficiency score), and slack values for each variable.
+CCR/BCC also accept `orientation="input"` or `"output"`.
 
-### Network models
+DDF accepts `direction="observed"`, `"mean"`, or `"unit"`.
 
-```python
-from gurobi_dea import NetworkSBM
-
-model = NetworkSBM(
-    inputs=all_input_cols,
-    desirable_outputs=all_output_cols,
-    undesirable_outputs=all_undesirable_cols,
-    data=df,
-    stages=[
-        {"x": ["x1"], "y": ["y1"], "z": ["z1"]},
-        {"x": ["x2"], "y": ["y2"], "z": ["z2"]},
-    ],
-    links=[{"vars": ["w12"]}],  # stage 1 -> stage 2
-)
-results = model.solve(scale="c")
-```
-
-### Dynamic models
-
-```python
-from gurobi_dea import DynamicSBM
-
-model = DynamicSBM(
-    inputs=["x1"],
-    desirable_outputs=["y1"],
-    undesirable_outputs=["b1"],
-    carry_overs=["k1"],
-    data=panel_df,  # must have 'dmu' and 'year' columns
-)
-results = model.solve(scale="c")
-```
+Productivity indices use `model.compute()` on panel data (requires `dmu` + `year` columns).
 
 ## Project Structure
 
 ```
-src/gurobi_dea/
-├── __init__.py        # Public API
-├── base.py            # Abstract base class
-├── utils.py           # Affinity matrix, S-correlation
-└── models/
-    ├── sbm.py         # SBM + Super-SBM
-    ├── ebm.py         # EBM
-    ├── additive.py    # Additive
-    ├── network.py     # Network SBM/EBM
-    └── dynamic.py     # Dynamic SBM
+├── backup/                    # Original legacy code
+│   ├── Gurobi_dea.py
+│   └── dynamic_dea.py
+├── src/gurobi_dea/
+│   ├── __init__.py            # Public API (12 classes)
+│   ├── base.py                # Abstract base class
+│   ├── utils.py               # Affinity matrix, S-correlation
+│   └── models/
+│       ├── radial.py          # CCR, BCC
+│       ├── sbm.py             # SBM, Super-SBM
+│       ├── ebm.py             # EBM
+│       ├── additive.py        # Additive
+│       ├── ddf.py             # Directional Distance Function
+│       ├── network.py         # Network SBM/EBM
+│       ├── dynamic.py         # Dynamic SBM
+│       ├── malmquist.py       # Malmquist TFP Index
+│       └── malmquist_luenberger.py  # ML Index
+├── examples/
+│   └── quickstart.py
+├── pyproject.toml
+└── LICENSE
 ```
+
+## Roadmap
+
+- [x] Phase 1: CCR/BCC, DDF, Malmquist, Malmquist-Luenberger
+- [ ] Phase 2: Meta-frontier, Dynamic Network SBM, Cross-efficiency
+- [ ] Phase 3: Bootstrap DEA, Window DEA, Cost/Revenue efficiency
 
 ## Dependencies
 
