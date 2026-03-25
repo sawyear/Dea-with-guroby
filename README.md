@@ -24,6 +24,9 @@ All models support **undesirable outputs**.
 |-------|-------|-------------|-----------|
 | Cross-efficiency | `CrossEfficiency` | Peer appraisal, maverick index | Doyle & Green (1994, JORS) |
 | Meta-frontier | `MetaFrontier` | Group frontier + TGR | Battese, Rao & O'Donnell (2004) |
+| Bootstrap DEA | `BootstrapDEA` | Bias correction + confidence intervals | Simar & Wilson (2007, JoE) |
+| Cost efficiency | `CostEfficiency` | CE = TE × AE decomposition | Fare, Grosskopf & Lovell (1985) |
+| Revenue efficiency | `RevenueEfficiency` | RE = TE × AE decomposition | Fare, Grosskopf & Lovell (1985) |
 
 ### Structural
 
@@ -33,6 +36,12 @@ All models support **undesirable outputs**.
 | Network EBM | `NetworkEBM` | Multi-stage network EBM | Tone & Tsutsui (2009) |
 | Dynamic SBM | `DynamicSBM` | Panel with carry-over | Tone & Tsutsui (2010, Omega) |
 | Dynamic Network SBM | `DynamicNetworkSBM` | Network + carry-over | Tone & Tsutsui (2014, Omega) |
+
+### Panel
+
+| Model | Class | Description | Reference |
+|-------|-------|-------------|-----------|
+| Window DEA | `WindowDEA` | Sliding window panel analysis | Charnes et al. (1985) |
 
 ### Productivity Indices
 
@@ -114,7 +123,7 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 │   ├── Gurobi_dea.py
 │   └── dynamic_dea.py
 ├── src/gurobi_dea/
-│   ├── __init__.py            # Public API (15 classes)
+│   ├── __init__.py            # Public API (18 classes)
 │   ├── base.py                # Abstract base class
 │   ├── utils.py               # Affinity matrix, S-correlation
 │   └── models/
@@ -125,6 +134,9 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 │       ├── ddf.py             # Directional Distance Function
 │       ├── cross_efficiency.py # Cross-efficiency
 │       ├── meta_frontier.py   # Meta-frontier + TGR
+│       ├── bootstrap.py       # Bootstrap DEA (Simar-Wilson)
+│       ├── window.py          # Window DEA
+│       ├── cost_revenue.py    # Cost / Revenue efficiency
 │       ├── network.py         # Network SBM/EBM
 │       ├── dynamic.py         # Dynamic SBM
 │       ├── dynamic_network.py # Dynamic Network SBM
@@ -140,7 +152,7 @@ Productivity indices use `model.compute()` on panel data (requires `dmu` + `year
 
 - [x] Phase 1: CCR/BCC, DDF, Malmquist, Malmquist-Luenberger
 - [x] Phase 2: Meta-frontier, Dynamic Network SBM, Cross-efficiency
-- [ ] Phase 3: Bootstrap DEA, Window DEA, Cost/Revenue efficiency
+- [x] Phase 3: Bootstrap DEA, Window DEA, Cost/Revenue efficiency
 
 ## Dependencies
 

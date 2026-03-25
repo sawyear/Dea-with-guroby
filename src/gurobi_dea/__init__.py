@@ -9,11 +9,16 @@ Supported models:
         - DDF (directional distance function)
         - Cross-efficiency (peer appraisal)
         - Meta-frontier (technology gap ratio)
+        - Bootstrap DEA (bias correction + CI)
+        - Cost / Revenue efficiency (allocative decomposition)
 
     Structural:
         - Network SBM / Network EBM
         - Dynamic SBM
         - Dynamic Network SBM
+
+    Panel:
+        - Window DEA
 
     Productivity indices:
         - Malmquist TFP Index
@@ -27,13 +32,16 @@ from gurobi_dea.models.additive import Additive
 from gurobi_dea.models.ddf import DDF
 from gurobi_dea.models.cross_efficiency import CrossEfficiency
 from gurobi_dea.models.meta_frontier import MetaFrontier
+from gurobi_dea.models.bootstrap import BootstrapDEA
+from gurobi_dea.models.window import WindowDEA
+from gurobi_dea.models.cost_revenue import CostEfficiency, RevenueEfficiency
 from gurobi_dea.models.network import NetworkSBM, NetworkEBM
 from gurobi_dea.models.dynamic import DynamicSBM
 from gurobi_dea.models.dynamic_network import DynamicNetworkSBM
 from gurobi_dea.models.malmquist import Malmquist
 from gurobi_dea.models.malmquist_luenberger import MalmquistLuenberger
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 __all__ = [
     "CCR", "BCC",
     "SBM", "SuperSBM",
@@ -42,6 +50,9 @@ __all__ = [
     "DDF",
     "CrossEfficiency",
     "MetaFrontier",
+    "BootstrapDEA",
+    "WindowDEA",
+    "CostEfficiency", "RevenueEfficiency",
     "NetworkSBM", "NetworkEBM",
     "DynamicSBM",
     "DynamicNetworkSBM",
