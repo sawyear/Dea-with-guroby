@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "gurobi-dea"
+version = "0.2.0"
+description = "Modular Data Envelopment Analysis toolkit powered by Gurobi"
+readme = "README.md"
+license = {text = "GPL-3.0"}
+requires-python = ">=3.9"
+authors = [{name = "sawyear"}]
+keywords = ["DEA", "data envelopment analysis", "efficiency", "gurobi", "optimization"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "gurobipy>=10.0",
+    "numpy>=1.22",
+    "pandas>=1.4",
+    "scipy>=1.8",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
