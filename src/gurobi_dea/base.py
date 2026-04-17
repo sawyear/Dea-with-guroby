@@ -41,6 +41,8 @@ class DEABase(ABC):
         self.dmu_col = dmu_col
         self.data = data.reset_index(drop=True)
 
+        self._validate_columns()
+
         # Dimensions
         self.n_dmu = len(self.data)
         self.m = len(self.input_names)       # number of inputs
@@ -52,17 +54,16 @@ class DEABase(ABC):
         self.Y: NDArray = self.data[self.desirable_names].to_numpy(dtype=float)
         self.Z: NDArray = self.data[self.undesirable_names].to_numpy(dtype=float)
 
-        self._validate()
+        self._validate_values()
 
     # ------------------------------------------------------------------
-    def _validate(self) -> None:
-        """Basic sanity checks."""
-        missing_cols = (
-            set(self.input_names + self.desirable_names + self.undesirable_names)
-            - set(self.data.columns)
-        )
+    def _validate_columns(self) -> None:
+        required = [self.dmu_col] + self.input_names + self.desirable_names + self.undesirable_names
+        missing_cols = set(required) - set(self.data.columns)
         if missing_cols:
             raise ValueError(f"Columns not found in data: {missing_cols}")
+
+    def _validate_values(self) -> None:
         if (self.X <= 0).any() or (self.Y <= 0).any() or (self.Z <= 0).any():
             import warnings
             warnings.warn(
